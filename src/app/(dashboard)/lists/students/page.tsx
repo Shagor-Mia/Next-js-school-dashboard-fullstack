@@ -1,5 +1,3 @@
-"use client";
-
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
@@ -8,20 +6,15 @@ import Link from "next/link";
 import React from "react";
 import { role, studentsData, teachersData } from "../../../../lib/data";
 import FormModel from "@/components/FormModel";
+import { Attendance, Grade, Prisma, Result, Student } from "@prisma/client";
+import prisma from "@/lib/prisma";
+import { ITEMS_PER_PAGE } from "@/lib/settings";
 
-type Student = {
-  id: number;
-  studentId: string;
-  name: string;
-  email?: string;
-  photo: string;
-  phone?: string;
-  grade: number;
-  class: string;
-  address: string;
-  actions: string;
+type StudentList = Student & {
+  attendences: Attendance[];
+  results: Result[];
+  grade: Grade;
 };
-
 const columns = [
   {
     header: "Info",
@@ -55,48 +48,121 @@ const columns = [
   },
 ];
 
-const StudentListPage = () => {
-  const renderRow = (item: Student) => (
-    <tr
-      key={item.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-PurpleLight"
-    >
-      <td className="flex items-center gap-4 p-4">
-        <Image
-          src={item.photo}
-          alt=""
-          height={40}
-          width={40}
-          className="md:hidden xl:block w-10 h-10 rounded-full object-cover "
-        />
-        <div className="flex flex-col">
-          <h3 className="font-semibold">{item.name}</h3>
-          <p className="text-xs text-gray-500">{item?.email}</p>
-        </div>
-      </td>
-      <td className="hidden md:table-cell">{item.studentId}</td>
+const renderRow = (item: StudentList) => (
+  <tr
+    key={item.id}
+    className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-PurpleLight"
+  >
+    <td className="flex items-center gap-4 p-4">
+      <Image
+        src={item.img || "/no img"}
+        alt=""
+        height={40}
+        width={40}
+        className="md:hidden xl:block w-10 h-10 rounded-full object-cover "
+      />
+      <div className="flex flex-col">
+        <h3 className="font-semibold">{item.name}</h3>
+        <p className="text-xs text-gray-500">{item?.email}</p>
+      </div>
+    </td>
+    <td className="hidden md:table-cell">{item.username}</td>
 
-      <td className="hidden md:table-cell">{item.grade}</td>
-      <td className="hidden md:table-cell">{item.phone}</td>
-      <td className="hidden md:table-cell">{item.address}</td>
-      <td>
-        <div className="flex items-center gap-2">
+    <td className="hidden md:table-cell">{item.grade?.level}</td>
+    <td className="hidden md:table-cell">{item.phone}</td>
+    <td className="hidden md:table-cell">{item.address}</td>
+    <td>
+      <div className="flex items-center gap-2">
+        <Link href={`/lists/students/${item.id}`}>
+          <button className="w-7 h-7 flex items-center justify-center rounded-full bg-Sky">
+            <Image src="/view.png" alt="View" width={16} height={16} />
+          </button>
+        </Link>
+
+        {role === "admin" && (
           <Link href={`/lists/students/${item.id}`}>
-            <button className="w-7 h-7 flex items-center justify-center rounded-full bg-Sky">
-              <Image src="/view.png" alt="View" width={16} height={16} />
-            </button>
+            <FormModel table={"student"} type={"delete"} id={item.id} />
           </Link>
+        )}
+      </div>
+    </td>
+  </tr>
+);
 
-          {role === "admin" && (
-            <Link href={`/lists/students/${item.id}`}>
-              <FormModel table={"student"} type={"delete"} id={item.id} />
-            </Link>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
+const StudentListPage = async ({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | undefined };
+}) => {
+  const { page, ...queryParams } = searchParams;
+  const p = page ? parseInt(page) : 1;
 
+  //URL params condition
+  const query: Prisma.StudentWhereInput = {};
+
+  if (queryParams) {
+    for (const [key, value] of Object.entries(queryParams)) {
+      if (value !== undefined) {
+        // URL params condition
+        const query: Prisma.StudentWhereInput = {};
+
+        if (queryParams) {
+          for (const [key, value] of Object.entries(queryParams)) {
+            if (value !== undefined) {
+              switch (key) {
+                case "gradeId":
+                  query.gradeId = parseInt(value);
+                  break;
+
+                case "classId":
+                  query.classId = parseInt(value);
+                  break;
+
+                case "resultSubjectId":
+                  query.results = {
+                    some: {
+                      examId: parseInt(value),
+                    },
+                  };
+                  break;
+
+                case "attendanceDate":
+                  query.attendances = {
+                    some: {
+                      date: {
+                        equals: new Date(value),
+                      },
+                    },
+                  };
+                  break;
+
+                case "name":
+                  query.name = {
+                    contains: value,
+                    mode: "insensitive",
+                  };
+                  break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const [data, count] = await prisma.$transaction([
+    prisma.student.findMany({
+      where: query,
+      include: {
+        grade: true,
+        results: true,
+        attendances: true,
+      },
+      take: ITEMS_PER_PAGE,
+      skip: ITEMS_PER_PAGE * (p - 1),
+    }),
+    prisma.student.count({ where: query }),
+  ]);
   return (
     <div className="bg-white rounded-md p-4 flex-1 m-4 mt-0">
       {/* TOP */}
@@ -118,9 +184,9 @@ const StudentListPage = () => {
         </div>
       </div>
       {/* LIST */}
-      <Table columns={columns} renderRow={renderRow} data={studentsData} />
+      <Table columns={columns} renderRow={renderRow} data={data} />
       {/* PAGINATION */}
-      <Pagination />
+      <Pagination page={p} count={count} />
     </div>
   );
 };
