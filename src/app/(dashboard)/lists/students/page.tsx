@@ -6,11 +6,19 @@ import Link from "next/link";
 import React from "react";
 import { role, studentsData, teachersData } from "../../../../lib/data";
 import FormModel from "@/components/FormModel";
-import { Attendance, Grade, Prisma, Result, Student } from "@prisma/client";
+import {
+  Attendance,
+  Class,
+  Grade,
+  Prisma,
+  Result,
+  Student,
+} from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { ITEMS_PER_PAGE } from "@/lib/settings";
 
 type StudentList = Student & {
+  class: Class;
   attendences: Attendance[];
   results: Result[];
   grade: Grade;
@@ -23,6 +31,11 @@ const columns = [
   {
     header: "Student ID",
     accessor: "studentId",
+    className: "hidden md:table-cell",
+  },
+  {
+    header: "Class",
+    accessor: "class",
     className: "hidden md:table-cell",
   },
   {
@@ -67,6 +80,7 @@ const renderRow = (item: StudentList) => (
       </div>
     </td>
     <td className="hidden md:table-cell">{item.username}</td>
+    <td className="hidden md:table-cell">{item.class.name}</td>
 
     <td className="hidden md:table-cell">{item.grade?.level}</td>
     <td className="hidden md:table-cell">{item.phone}</td>
@@ -103,48 +117,28 @@ const StudentListPage = async ({
   if (queryParams) {
     for (const [key, value] of Object.entries(queryParams)) {
       if (value !== undefined) {
-        // URL params condition
-        const query: Prisma.StudentWhereInput = {};
+        switch (key) {
+          case "teacherId":
+            query.class = {
+              lessons: {
+                some: {
+                  teacherId: value,
+                },
+              },
+            };
+            break;
 
-        if (queryParams) {
-          for (const [key, value] of Object.entries(queryParams)) {
-            if (value !== undefined) {
-              switch (key) {
-                case "gradeId":
-                  query.gradeId = parseInt(value);
-                  break;
-
-                case "classId":
-                  query.classId = parseInt(value);
-                  break;
-
-                case "resultSubjectId":
-                  query.results = {
-                    some: {
-                      examId: parseInt(value),
-                    },
-                  };
-                  break;
-
-                case "attendanceDate":
-                  query.attendances = {
-                    some: {
-                      date: {
-                        equals: new Date(value),
-                      },
-                    },
-                  };
-                  break;
-
-                case "name":
-                  query.name = {
-                    contains: value,
-                    mode: "insensitive",
-                  };
-                  break;
-              }
-            }
-          }
+          case "search":
+            query.OR = [
+              { name: { contains: value, mode: "insensitive" } },
+              { username: { contains: value, mode: "insensitive" } },
+              { email: { not: null, contains: value, mode: "insensitive" } },
+              { phone: { not: null, contains: value, mode: "insensitive" } },
+              { address: { not: "", contains: value, mode: "insensitive" } },
+            ];
+            break;
+          default:
+            break;
         }
       }
     }
@@ -154,6 +148,7 @@ const StudentListPage = async ({
     prisma.student.findMany({
       where: query,
       include: {
+        class: true,
         grade: true,
         results: true,
         attendances: true,

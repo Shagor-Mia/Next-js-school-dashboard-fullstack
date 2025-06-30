@@ -122,11 +122,13 @@ const TeacherListPage = async ({
               },
             };
             break;
-          case "name":
+          case "search":
             query.name = {
               contains: value,
               mode: "insensitive",
             };
+            break;
+          default:
             break;
         }
       }
